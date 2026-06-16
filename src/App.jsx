@@ -856,7 +856,12 @@ function Workspace({
         </header>
         {loading && <div className="loading-line" />}
         {view === 'dashboard' ? (
-          <CloudDashboard records={records} openModal={openModal} setView={setView} />
+          <CloudDashboard
+            records={records}
+            openModal={openModal}
+            setView={setView}
+            userName={session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Trader'}
+          />
         ) : view === 'analytics' ? (
           <AnalyticsDashboard records={records} />
         ) : view === 'tools' ? (
@@ -905,7 +910,7 @@ function pageMeta(view) {
   return { topTitle, topCopy }
 }
 
-function CloudDashboard({ records, openModal, setView }) {
+function CloudDashboard({ records, openModal, setView, userName = 'Trader' }) {
   const [range, setRange] = useState('30 days')
   const [calendarDate, setCalendarDate] = useState(() => new Date())
   const trades = records.trades || []
@@ -934,7 +939,7 @@ function CloudDashboard({ records, openModal, setView }) {
       <section className="command-panel">
         <div>
           <span>OVERVIEW</span>
-          <h2>Welcome back, Trader</h2>
+          <h2>Welcome back, {userName} 👋</h2>
           <p>Here is your trading performance at a glance.</p>
         </div>
         <button className="btn primary" onClick={() => openModal({ configKey: 'trades' })}>

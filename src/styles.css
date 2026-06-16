@@ -1386,10 +1386,10 @@ a {
   display: grid;
   justify-items: stretch;
   align-content: start;
-  gap: 24px;
+  gap: 14px;
   flex: 1;
   margin: 0;
-  padding: 24px 24px 28px 24px;
+  padding: 16px 16px 20px 16px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: #78e5cf transparent;
@@ -1411,7 +1411,7 @@ a {
 .nav-group {
   display: grid;
   justify-items: stretch;
-  gap: 10px;
+  gap: 4px;
 }
 
 .nav-group:first-child > span {
@@ -1432,14 +1432,14 @@ a {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  min-height: 54px;
+  min-height: 46px;
   width: 100%;
-  padding: 0 16px;
-  gap: 14px;
+  padding: 0 14px;
+  gap: 12px;
   color: #556071;
-  border-radius: 16px;
-  font-size: 16px;
-  font-weight: 760;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 720;
   text-align: left;
   white-space: nowrap;
   letter-spacing: 0;
@@ -1459,23 +1459,19 @@ a {
   color: #6d7685;
 }
 
-.app-sidebar nav button.active,
 .app-sidebar nav button:hover {
   color: #141c2e;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 22px 52px rgba(99, 113, 145, 0.15);
+  background: rgba(96, 120, 150, 0.08);
 }
 
-.app-sidebar nav button.active::before {
-  content: "";
-  position: absolute;
-  left: -12px;
-  top: 50%;
-  width: 4px;
-  height: 34px;
-  border-radius: 999px;
-  transform: translateY(-50%);
-  background: linear-gradient(180deg, #60d8d0, #6f79ff);
+.app-sidebar nav button.active {
+  color: #0f7a63;
+  background: rgba(96, 216, 184, 0.16);
+  box-shadow: none;
+}
+
+.app-sidebar nav button.active svg:last-child {
+  color: #0f9f73;
 }
 
 .sync-card {
@@ -1649,6 +1645,14 @@ a {
   letter-spacing: 0.12em;
 }
 
+.command-panel span {
+  display: inline-block;
+  padding: 5px 12px;
+  border-radius: 999px;
+  color: #0f9f73;
+  background: rgba(96, 216, 184, 0.18);
+}
+
 .command-panel h2,
 .records-head h2 {
   margin: 12px 0 0;
@@ -1699,7 +1703,14 @@ a {
 }
 
 .stat-card svg {
-  color: #3cc6b8;
+  width: 38px;
+  height: 38px;
+  padding: 9px;
+  border-radius: 12px;
+  box-sizing: border-box;
+  color: #2aa899;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 6px 16px rgba(105, 120, 150, 0.12);
 }
 
 .stat-card span {
@@ -1755,6 +1766,11 @@ a {
 .journal-filters button.active {
   color: #fff;
   background: linear-gradient(135deg, #76ddd2, #6d7dff);
+}
+
+/* Push the "Today" shortcut to the far right, like RyzeLog. */
+.range-strip button:last-child {
+  margin-left: auto;
 }
 
 .dashboard-columns {
