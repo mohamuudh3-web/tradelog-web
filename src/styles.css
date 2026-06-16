@@ -1452,7 +1452,7 @@ a {
   stroke-width: 2.05;
 }
 
-.app-sidebar nav button svg:last-child {
+.app-sidebar nav button svg:last-child:not(:first-child) {
   margin-left: auto;
   width: 18px;
   height: 18px;
