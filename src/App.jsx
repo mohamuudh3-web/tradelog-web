@@ -44,6 +44,7 @@ const tableConfigs = {
     fields: [
       ['instrument', 'Instrument', 'text', 'EURUSD'],
       ['direction', 'Direction', 'select', ['LONG', 'SHORT']],
+      ['account_uid', 'Account', 'account'],
       ['session', 'Session', 'select', ['', 'ASIA', 'LONDON', 'NEW YORK']],
       ['result', 'Result', 'select', ['WIN', 'LOSS', 'BREAKEVEN']],
       ['entry_price', 'Entry price', 'number'],
@@ -303,6 +304,21 @@ export default function App() {
     return () => clearTimeout(timer)
   }, [celebration])
 
+  // Live-ish sync: pull fresh cloud data on a timer and whenever the tab regains focus,
+  // so trades logged on the phone show up here without pressing Refresh.
+  useEffect(() => {
+    if (!session) return undefined
+    const tick = () => { if (document.visibilityState === 'visible') refreshAll() }
+    const id = setInterval(tick, 20000)
+    window.addEventListener('focus', tick)
+    document.addEventListener('visibilitychange', tick)
+    return () => {
+      clearInterval(id)
+      window.removeEventListener('focus', tick)
+      document.removeEventListener('visibilitychange', tick)
+    }
+  }, [session])
+
   async function refreshAll() {
     setLoading(true)
     const entries = await Promise.all(
@@ -337,6 +353,12 @@ export default function App() {
   async function saveRecord(configKey, values, editUid) {
     const config = tableConfigs[configKey]
     const payload = { ...values, updated_at: msNow() }
+    if (configKey === 'trades') {
+      // Sign P&L and R by outcome so a loss is always negative (matches the Android app).
+      const sign = payload.result === 'LOSS' ? -1 : payload.result === 'BREAKEVEN' ? 0 : 1
+      if (payload.pnl != null && payload.pnl !== '') payload.pnl = Math.abs(Number(payload.pnl) || 0) * sign
+      if (payload.r_multiple != null && payload.r_multiple !== '') payload.r_multiple = Math.abs(Number(payload.r_multiple) || 0) * sign
+    }
     if (!editUid) {
       payload.uid = uid()
       if (config.hasCreated) payload.created_at = msNow()
@@ -396,6 +418,7 @@ export default function App() {
           close={() => setModal(null)}
           uploadImage={uploadImage}
           saveRecord={saveRecord}
+          accounts={records.accounts || []}
         />
       )}
       {celebration && <Celebration title={celebration.title} copy={celebration.copy} />}
@@ -1612,7 +1635,7 @@ function RecordCard({ row, configKey, compact, editRecord, deleteRecord }) {
   )
 }
 
-function RecordModal({ modal, close, uploadImage, saveRecord }) {
+function RecordModal({ modal, close, uploadImage, saveRecord, accounts = [] }) {
   const { configKey, record } = modal
   const config = tableConfigs[configKey]
   const [values, setValues] = useState(() => buildInitialValues(config, record))
@@ -1623,13 +1646,13 @@ function RecordModal({ modal, close, uploadImage, saveRecord }) {
   const usesChecklist = configKey === 'trades' || configKey === 'backtests'
   const detailFields =
     configKey === 'trades'
-      ? config.fields.slice(0, 10)
+      ? config.fields.slice(0, 11)
       : configKey === 'backtests'
         ? config.fields.slice(0, 9)
         : config.fields
   const reviewFields =
     configKey === 'trades'
-      ? config.fields.slice(10)
+      ? config.fields.slice(11)
       : configKey === 'backtests'
         ? config.fields.slice(9)
         : []
@@ -1701,6 +1724,7 @@ function RecordModal({ modal, close, uploadImage, saveRecord }) {
               label={label}
               type={type}
               options={options}
+              accounts={accounts}
               value={values[name]}
               update={update}
               setFile={(file) => setFiles((current) => ({ ...current, [name]: file }))}
@@ -1719,6 +1743,7 @@ function RecordModal({ modal, close, uploadImage, saveRecord }) {
                 label={label}
                 type={type}
                 options={options}
+                accounts={accounts}
                 value={values[name]}
                 update={update}
                 setFile={(file) => setFiles((current) => ({ ...current, [name]: file }))}
@@ -1779,7 +1804,23 @@ function buildInitialValues(config, record) {
   return initial
 }
 
-function Field({ name, label, type, options, value, update, setFile }) {
+function Field({ name, label, type, options, value, update, setFile, accounts = [] }) {
+  if (type === 'account') {
+    const live = accounts.filter((a) => !a.deleted)
+    return (
+      <label className="field">
+        <span>{label}</span>
+        <select value={value || ''} onChange={(e) => update(name, e.target.value)}>
+          <option value="">No account</option>
+          {live.map((a) => (
+            <option key={a.uid} value={a.uid}>
+              {a.name || a.broker || 'Account'}
+            </option>
+          ))}
+        </select>
+      </label>
+    )
+  }
   if (name === 'psychology') {
     return (
       <PsychologyField
