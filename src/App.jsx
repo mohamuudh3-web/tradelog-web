@@ -78,7 +78,8 @@ const tableConfigs = {
       ['setup_tag', 'Setup tag', 'suggest', setupTagSuggestions],
       ['psychology', 'Psychology', 'textarea', 'Calm execution, waited for confirmation.'],
       ['notes', 'Notes', 'textarea'],
-      ['screenshot_url', 'Screenshot URL', 'image'],
+      ['screenshot_url', 'Before image', 'image'],
+      ['image_urls', 'After image', 'image'],
     ],
     defaults: { direction: 'LONG', result: 'BREAKEVEN', opened_at: Date.now() },
   },
@@ -90,7 +91,6 @@ const tableConfigs = {
     order: 'date_millis',
     empty: 'Save your first backtest with chart screenshots.',
     fields: [
-      ['title', 'Title', 'text', 'London continuation model'],
       ['instrument', 'Instrument', 'suggest', defaultInstrumentSuggestions],
       ['date_millis', 'Date', 'date'],
       ['bias', 'Scenario', 'suggest', scenarioOptions],
@@ -99,8 +99,8 @@ const tableConfigs = {
       ['result', 'Result', 'select', ['', 'WIN', 'LOSS', 'BREAKEVEN']],
       ['sl_pips', 'SL pips', 'number'],
       ['tp_pips', 'TP pips', 'number'],
-      ['chart5_url', '5M chart URL', 'image'],
-      ['chart15_url', '15M chart URL', 'image'],
+      ['chart5_url', 'Before chart', 'image'],
+      ['chart15_url', 'After chart', 'image'],
       ['notes', 'Notes', 'textarea'],
     ],
     defaults: { date_millis: Date.now() },
@@ -1819,6 +1819,22 @@ function PortfolioView({ accounts, trades, openModal, deleteRecord }) {
 function RecordList({ rows, configKey, compact, editRecord, deleteRecord }) {
   if (!rows?.length) return <p className="muted-copy">No records yet.</p>
   const numbered = configKey === 'trades' || configKey === 'backtests'
+  if (numbered && !compact) {
+    return (
+      <div className="gallery-grid">
+        {rows.map((row, index) => (
+          <GalleryCard
+            key={row.uid}
+            row={row}
+            configKey={configKey}
+            seq={rows.length - index}
+            editRecord={editRecord}
+            deleteRecord={deleteRecord}
+          />
+        ))}
+      </div>
+    )
+  }
   return (
     <div className={compact ? 'compact-list' : 'record-list'}>
       {rows.map((row, index) => (
@@ -1833,6 +1849,49 @@ function RecordList({ rows, configKey, compact, editRecord, deleteRecord }) {
         />
       ))}
     </div>
+  )
+}
+
+function GalleryCard({ row, configKey, seq, editRecord, deleteRecord }) {
+  const cover = safeImageUrl(configKey === 'backtests' ? row.chart5_url : row.screenshot_url)
+  const pair = row.instrument || 'Untitled'
+  const result = (row.result || '').toUpperCase()
+  const dirRaw = (row.direction || '').toUpperCase()
+  const dir = dirRaw === 'SHORT' ? 'Sell' : dirRaw === 'LONG' ? 'Buy' : ''
+  const tag = configKey === 'backtests' ? row.bias || row.session : row.session || row.setup_tag
+  const ts = configKey === 'backtests' ? row.date_millis : row.opened_at
+  const dateStr = ts ? new Date(Number(ts)).toISOString().slice(0, 10) : ''
+  const desc = row.notes || row.setup_tag || row.bias || ''
+  const resultClass = result === 'WIN' ? 'win' : result === 'LOSS' ? 'loss' : 'be'
+
+  return (
+    <article className="gallery-card" onClick={() => editRecord?.(row)}>
+      <div className="gallery-cover">
+        {cover ? <img src={cover} alt="" /> : <div className="gallery-cover-empty"><ImagePlus size={20} /></div>}
+        {result && <span className={`gallery-badge ${resultClass}`}>{result === 'BREAKEVEN' ? 'B/E' : result}</span>}
+        <button
+          className="gallery-del"
+          onClick={(e) => { e.stopPropagation(); deleteRecord?.(configKey, row.uid) }}
+          aria-label="Delete"
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+      <div className="gallery-body">
+        <div className="gallery-row">
+          <strong>{pair}</strong>
+          <span className="gallery-no">#{seq}</span>
+        </div>
+        <div className="gallery-row">
+          <div className="gallery-chips">
+            {dir && <span className={dir === 'Sell' ? 'chip sell' : 'chip buy'}>{dir}</span>}
+            {tag && <span className="chip tag">{tag}</span>}
+          </div>
+          <span className="gallery-date">{dateStr}</span>
+        </div>
+        {desc && <p className="gallery-desc">{desc}</p>}
+      </div>
+    </article>
   )
 }
 
@@ -1952,6 +2011,17 @@ function RecordModal({ modal, close, uploadImage, saveRecord, accounts = [], rec
       const nextValues = { ...values }
       for (const [name, file] of Object.entries(files)) {
         if (file) nextValues[name] = await uploadImage(file)
+      }
+      // Require before + after images on trades and backtests.
+      if (configKey === 'trades' && (!nextValues.screenshot_url || !nextValues.image_urls)) {
+        setError('Add both a Before and an After image before saving this trade.')
+        setSaving(false)
+        return
+      }
+      if (configKey === 'backtests' && (!nextValues.chart5_url || !nextValues.chart15_url)) {
+        setError('Add both a Before and an After chart before saving this backtest.')
+        setSaving(false)
+        return
       }
       const payload = {}
       for (const [name, _label, type] of config.fields) {
