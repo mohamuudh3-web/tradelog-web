@@ -17,6 +17,7 @@ import {
   LineChart,
   LogOut,
   Mail,
+  Menu,
   NotebookTabs,
   Plus,
   RefreshCw,
@@ -33,6 +34,25 @@ import {
 } from 'lucide-react'
 import { supabase } from './supabase.js'
 
+const defaultInstrumentSuggestions = [
+  'EURUSD',
+  'GBPUSD',
+  'XAUUSD',
+  'USDJPY',
+  'GBPJPY',
+  'AUDUSD',
+  'NZDUSD',
+  'USDCAD',
+  'USDCHF',
+  'XAGUSD',
+  'NAS100',
+  'US30',
+]
+
+const sessionOptions = ['', 'ASIA', 'LONDON', 'NEW YORK']
+const scenarioOptions = ['', 'S1', 'S2', 'S3', 'S4', 'Continuation', 'Liquidity sweep', 'Breakout retest', 'Reversal', 'Other']
+const setupTagSuggestions = ['Liquidity sweep', 'London Open', 'Breakout', 'Pullback', 'Continuation', 'Reversal', 'Order block', 'FVG']
+
 const tableConfigs = {
   trades: {
     title: 'Trades',
@@ -42,18 +62,20 @@ const tableConfigs = {
     order: 'opened_at',
     empty: 'Log your first trade from Chrome.',
     fields: [
-      ['instrument', 'Instrument', 'text', 'EURUSD'],
+      ['instrument', 'Instrument', 'suggest', defaultInstrumentSuggestions],
       ['direction', 'Direction', 'select', ['LONG', 'SHORT']],
       ['account_uid', 'Account', 'account'],
-      ['session', 'Session', 'select', ['', 'ASIA', 'LONDON', 'NEW YORK']],
+      ['session', 'Session', 'select', sessionOptions],
       ['result', 'Result', 'select', ['WIN', 'LOSS', 'BREAKEVEN']],
       ['entry_price', 'Entry price', 'number'],
       ['exit_price', 'Exit price', 'number'],
       ['lot_size', 'Lot size', 'number'],
       ['risk_percent', 'Risk %', 'number'],
+      ['sl_pips', 'SL pips', 'number'],
+      ['tp_pips', 'TP pips', 'number'],
       ['r_multiple', 'R multiple', 'number'],
       ['pnl', 'P&L', 'number'],
-      ['setup_tag', 'Setup tag', 'text', 'Liquidity sweep'],
+      ['setup_tag', 'Setup tag', 'suggest', setupTagSuggestions],
       ['psychology', 'Psychology', 'textarea', 'Calm execution, waited for confirmation.'],
       ['notes', 'Notes', 'textarea'],
       ['screenshot_url', 'Screenshot URL', 'image'],
@@ -69,12 +91,12 @@ const tableConfigs = {
     empty: 'Save your first backtest with chart screenshots.',
     fields: [
       ['title', 'Title', 'text', 'London continuation model'],
-      ['instrument', 'Instrument', 'text', 'GBPUSD'],
+      ['instrument', 'Instrument', 'suggest', defaultInstrumentSuggestions],
       ['date_millis', 'Date', 'date'],
-      ['bias', 'Bias', 'text', 'Bullish after sweep'],
+      ['bias', 'Scenario', 'suggest', scenarioOptions],
+      ['session', 'Session', 'select', sessionOptions],
       ['direction', 'Direction', 'select', ['', 'LONG', 'SHORT']],
       ['result', 'Result', 'select', ['', 'WIN', 'LOSS', 'BREAKEVEN']],
-      ['session', 'Scenario / session', 'text', 'S2 London'],
       ['sl_pips', 'SL pips', 'number'],
       ['tp_pips', 'TP pips', 'number'],
       ['chart5_url', '5M chart URL', 'image'],
@@ -158,6 +180,19 @@ const tableConfigs = {
     ],
     defaults: {},
   },
+  instruments: {
+    title: 'Instruments',
+    icon: Target,
+    table: 'instruments',
+    order: 'sort_order',
+    empty: 'Save your first symbol.',
+    fields: [
+      ['name', 'Symbol', 'suggest', defaultInstrumentSuggestions],
+      ['pip_value_per_lot', 'Pip/point value per lot', 'number'],
+      ['sort_order', 'Sort order', 'number'],
+    ],
+    defaults: { pip_value_per_lot: 10, sort_order: 0 },
+  },
 }
 
 const navSections = [
@@ -231,6 +266,18 @@ function parseValue(type, value) {
   if (type === 'checkbox') return Boolean(value)
   if (type === 'date') return value ? new Date(`${value}T12:00:00`).getTime() : msNow()
   return value ?? ''
+}
+
+function cleanNumber(value) {
+  const rounded = Math.round(Number(value) * 100) / 100
+  return Number.isInteger(rounded) ? String(rounded) : String(rounded)
+}
+
+function calculateRiskReward(slPips, tpPips) {
+  const stop = Math.abs(Number(slPips || 0))
+  const target = Math.abs(Number(tpPips || 0))
+  if (!stop || !target || !Number.isFinite(stop) || !Number.isFinite(target)) return ''
+  return cleanNumber(target / stop)
 }
 
 const maxImageUploadBytes = 8 * 1024 * 1024
@@ -319,6 +366,30 @@ export default function App() {
     }
   }, [session])
 
+  useEffect(() => {
+    if (!session) return undefined
+    let timer = 0
+    const scheduleRefresh = () => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        if (document.visibilityState === 'visible') refreshAll()
+      }, 400)
+    }
+    const channel = supabase.channel('tradelog-live-sync')
+    Object.values(tableConfigs).forEach((config) => {
+      channel.on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: config.table },
+        scheduleRefresh,
+      )
+    })
+    channel.subscribe()
+    return () => {
+      window.clearTimeout(timer)
+      supabase.removeChannel(channel)
+    }
+  }, [session])
+
   async function refreshAll() {
     setLoading(true)
     const entries = await Promise.all(
@@ -354,8 +425,12 @@ export default function App() {
     const config = tableConfigs[configKey]
     const payload = { ...values, updated_at: msNow() }
     if (configKey === 'trades') {
+      if (!payload.account_uid) payload.account_uid = defaultTradeAccountUid(records.accounts || [])
       // Sign P&L and R by outcome so a loss is always negative (matches the Android app).
       const sign = payload.result === 'LOSS' ? -1 : payload.result === 'BREAKEVEN' ? 0 : 1
+      if ((payload.r_multiple == null || payload.r_multiple === '') && payload.sl_pips != null && payload.tp_pips != null) {
+        payload.r_multiple = calculateRiskReward(payload.sl_pips, payload.tp_pips)
+      }
       if (payload.pnl != null && payload.pnl !== '') payload.pnl = Math.abs(Number(payload.pnl) || 0) * sign
       if (payload.r_multiple != null && payload.r_multiple !== '') payload.r_multiple = Math.abs(Number(payload.r_multiple) || 0) * sign
     }
@@ -419,6 +494,7 @@ export default function App() {
           uploadImage={uploadImage}
           saveRecord={saveRecord}
           accounts={records.accounts || []}
+          records={records}
         />
       )}
       {celebration && <Celebration title={celebration.title} copy={celebration.copy} />}
@@ -797,6 +873,7 @@ function Workspace({
   openModal,
   deleteRecord,
 }) {
+  const [navOpen, setNavOpen] = useState(false)
   const today = new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
     month: 'short',
@@ -805,12 +882,23 @@ function Workspace({
 
   function navigate(key) {
     setView(key)
+    setNavOpen(false)
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
   }
 
   return (
     <div className="workspace">
-      <aside className="app-sidebar">
+      <header className="mobile-bar">
+        <button className="hamburger" onClick={() => setNavOpen(true)} aria-label="Open menu">
+          <Menu size={22} />
+        </button>
+        <Logo />
+        <button className="icon-btn" onClick={refreshAll} aria-label="Refresh">
+          <RefreshCw size={18} />
+        </button>
+      </header>
+      {navOpen && <div className="nav-overlay" onClick={() => setNavOpen(false)} />}
+      <aside className={navOpen ? 'app-sidebar open' : 'app-sidebar'}>
         <Logo />
         <nav className="side-nav">
           {navSections.map((section) => (
@@ -878,6 +966,13 @@ function Workspace({
             openModal={openModal}
             deleteRecord={deleteRecord}
           />
+        ) : view === 'accounts' ? (
+          <PortfolioView
+            accounts={records.accounts || []}
+            trades={records.trades || []}
+            openModal={openModal}
+            deleteRecord={deleteRecord}
+          />
         ) : (
           <RecordsView
             configKey={view}
@@ -918,8 +1013,9 @@ function CloudDashboard({ records, openModal, setView, userName = 'Trader' }) {
   const accounts = records.accounts || []
   const payouts = records.payouts || []
   const filteredTrades = useMemo(() => filterTradesByRange(trades, range), [trades, range])
+  const pnlByAccount = accountPnlMap(trades, accounts)
   const totals = tradeTotals(filteredTrades, accounts, payouts)
-  const accountBalance = accounts.reduce((sum, account) => sum + Number(account.balance || 0), 0)
+  const accountBalance = accounts.reduce((sum, account) => sum + accountEquity(account, pnlByAccount), 0)
   const heatDays = monthHeatDays(filteredTrades, calendarDate)
   const weeks = weeklyPnl(filteredTrades, calendarDate)
   const weekday = weekdayPnl(filteredTrades)
@@ -946,11 +1042,23 @@ function CloudDashboard({ records, openModal, setView, userName = 'Trader' }) {
           <Plus size={16} /> New trade
         </button>
       </section>
-      <div className="stats-grid">
-        <StatCard icon={BookOpen} label="Total Trades" value={filteredTrades.length} hint={range} tone="aqua" />
-        <StatCard icon={Target} label="Win Rate" value={`${totals.winRate}%`} hint="Based on outcomes" tone="violet" />
-        <StatCard icon={LineChart} label="Avg Risk:Reward" value={`1:${totals.avgR.toFixed(1)}`} hint="Average RR" tone="amber" />
-        <StatCard icon={CircleDollarSign} label="Total PnL" value={money(totals.totalPnl)} hint={totals.totalPnl >= 0 ? 'Flat' : 'Drawdown'} tone="mint" trend={totals.totalPnl >= 0 ? 'positive' : 'negative'} />
+      <div className="kpi-layout">
+        <article className="pnl-hero">
+          <div className="pnl-left">
+            <span className="kicker"><CircleDollarSign size={14} /> Net P&amp;L · {range}</span>
+            <strong className={`pnl-value ${totals.totalPnl < 0 ? 'negative' : 'positive'}`}>{money(totals.totalPnl)}</strong>
+          </div>
+          <div className="pnl-breakdown">
+            <span className="win">{totals.wins}W</span>
+            <span className="loss">{totals.losses}L</span>
+            <span>{totals.breakEven}BE</span>
+          </div>
+        </article>
+        <div className="kpi-row">
+          <StatCard icon={BookOpen} label="Total Trades" value={filteredTrades.length} hint={range} tone="aqua" />
+          <StatCard icon={Target} label="Win Rate" value={`${totals.winRate}%`} hint="Based on outcomes" tone="violet" />
+          <StatCard icon={LineChart} label="Avg Risk:Reward" value={`1:${totals.avgR.toFixed(1)}`} hint="Average RR" tone="mint" />
+        </div>
       </div>
       <div className="range-strip">
         {dashboardRanges.map((item) => (
@@ -1028,7 +1136,7 @@ function CloudDashboard({ records, openModal, setView, userName = 'Trader' }) {
               <strong>{backtests.length}</strong>
             </div>
             <div>
-              <span>Account Balance</span>
+              <span>Account Equity</span>
               <strong>{money(accountBalance)}</strong>
             </div>
             <div>
@@ -1166,8 +1274,8 @@ function AnalyticsDashboard({ records }) {
   const [showBanner, setShowBanner] = useState(true)
   const [exportStatus, setExportStatus] = useState('')
   const accountOptions = [
-    'All Accounts',
-    ...new Set(accounts.map((account) => account.name || account.account_name || account.uid).filter(Boolean)),
+    ['All Accounts', 'All Accounts'],
+    ...accounts.map((account) => [account.uid, account.name || account.broker || 'Account']),
   ]
   const symbolOptions = ['All Symbols', ...new Set(rawTrades.map((trade) => trade.instrument).filter(Boolean))]
   const sessionOptions = ['All Sessions', ...new Set(rawTrades.map((trade) => trade.session).filter(Boolean))]
@@ -1176,21 +1284,29 @@ function AnalyticsDashboard({ records }) {
     const end = filters.end ? new Date(`${filters.end}T23:59:59`).getTime() : null
     return rawTrades.filter((trade) => {
       const timestamp = tradeTime(trade)
-      const tradeAccount = trade.account_name || trade.account || trade.account_uid || trade.account_id || 'Unassigned'
-      const matchesAccount = filters.account === 'All Accounts' || tradeAccount === filters.account
+      const tradeAccount = tradeAccountUid(trade, accounts)
+      const selectedAccount = accounts.find((account) => account.uid === filters.account)
+      const matchesAccount =
+        filters.account === 'All Accounts' ||
+        tradeAccount === filters.account ||
+        (selectedAccount && trade.account_name === selectedAccount.name)
       const matchesSymbol = filters.symbol === 'All Symbols' || trade.instrument === filters.symbol
       const matchesSession = filters.session === 'All Sessions' || trade.session === filters.session
       const matchesStart = !start || timestamp >= start
       const matchesEnd = !end || timestamp <= end
       return matchesAccount && matchesSymbol && matchesSession && matchesStart && matchesEnd
     })
-  }, [rawTrades, filters])
+  }, [rawTrades, accounts, filters])
   const payouts = useMemo(() => {
     const start = filters.start ? new Date(`${filters.start}T00:00:00`).getTime() : null
     const end = filters.end ? new Date(`${filters.end}T23:59:59`).getTime() : null
     return rawPayouts.filter((payout) => {
       const timestamp = payout.date ? new Date(`${payout.date}T12:00:00`).getTime() : Number(payout.updated_at || Date.now())
-      const matchesAccount = filters.account === 'All Accounts' || payout.account_name === filters.account
+      const selectedAccount = accounts.find((account) => account.uid === filters.account)
+      const matchesAccount =
+        filters.account === 'All Accounts' ||
+        payout.account_name === filters.account ||
+        (selectedAccount && payout.account_name === selectedAccount.name)
       const matchesStart = !start || timestamp >= start
       const matchesEnd = !end || timestamp <= end
       return matchesAccount && matchesStart && matchesEnd
@@ -1252,7 +1368,7 @@ function AnalyticsDashboard({ records }) {
         <label>
           <span>Account</span>
           <select value={filters.account} onChange={(event) => updateFilter('account', event.target.value)}>
-            {accountOptions.map((option) => <option key={option}>{option}</option>)}
+            {accountOptions.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
           </select>
         </label>
         <label>
@@ -1382,6 +1498,43 @@ function tradeTotals(trades, accounts, payouts) {
     totalPayouts: payouts.reduce((sum, payout) => sum + Number(payout.amount || 0), 0),
     activeAccounts: accounts.filter((account) => !account.status || account.status === 'ACTIVE' || account.status === 'PASSED').length,
   }
+}
+
+function liveAccounts(accounts = []) {
+  return accounts.filter((account) => account?.uid && !account.deleted)
+}
+
+function defaultTradeAccountUid(accounts = []) {
+  const live = liveAccounts(accounts)
+  return live.find((account) => !account.status || account.status === 'ACTIVE' || account.status === 'PASSED')?.uid || live[0]?.uid || ''
+}
+
+function tradeAccountUid(trade, accounts = []) {
+  if (trade.account_uid) return trade.account_uid
+  const live = liveAccounts(accounts)
+  const namedAccount = live.find((account) =>
+    trade.account_name &&
+    (trade.account_name === account.name || trade.account_name === account.broker),
+  )
+  if (namedAccount) return namedAccount.uid
+  return defaultTradeAccountUid(live)
+}
+
+function accountPnlMap(trades, accounts = []) {
+  return trades.reduce((map, trade) => {
+    const accountUid = tradeAccountUid(trade, accounts)
+    if (!accountUid) return map
+    map[accountUid] = (map[accountUid] || 0) + Number(trade.pnl || 0)
+    return map
+  }, {})
+}
+
+function accountBaseBalance(account) {
+  return Number(account.balance || account.starting_balance || 0)
+}
+
+function accountEquity(account, pnlByAccount) {
+  return accountBaseBalance(account) + Number(pnlByAccount[account.uid] || 0)
 }
 
 function tradeTime(trade) {
@@ -1579,6 +1732,90 @@ function RecordsView({ configKey, records, openModal, deleteRecord }) {
   )
 }
 
+function PortfolioView({ accounts, trades, openModal, deleteRecord }) {
+  const pnlByAccount = accountPnlMap(trades, accounts)
+  const totalBase = accounts.reduce((sum, account) => sum + accountBaseBalance(account), 0)
+  const totalPnl = accounts.reduce((sum, account) => sum + Number(pnlByAccount[account.uid] || 0), 0)
+  const totalEquity = accounts.reduce((sum, account) => sum + accountEquity(account, pnlByAccount), 0)
+  const linkedTrades = trades.filter((trade) => tradeAccountUid(trade, accounts)).length
+
+  return (
+    <section className="portfolio-page">
+      <div className="records-head">
+        <div>
+          <span>PORTFOLIO</span>
+          <h2>My Portfolio</h2>
+          <p>Account equity updates from synced trade profit and loss.</p>
+        </div>
+        <button className="btn primary" onClick={() => openModal({ configKey: 'accounts' })}>
+          <Plus size={16} /> Add Account
+        </button>
+      </div>
+      <div className="stats-grid">
+        <StatCard icon={WalletCards} label="Starting Balance" value={money(totalBase)} hint={`${accounts.length} accounts`} tone="aqua" />
+        <StatCard icon={LineChart} label="Trade P&L" value={money(totalPnl)} hint={`${linkedTrades} linked trades`} tone="violet" trend={totalPnl < 0 ? 'negative' : 'positive'} />
+        <StatCard icon={CircleDollarSign} label="Current Equity" value={money(totalEquity)} hint="Balance + P&L" tone="mint" trend={totalEquity < totalBase ? 'negative' : 'positive'} />
+        <StatCard icon={Target} label="Active Accounts" value={accounts.filter((account) => !account.status || account.status === 'ACTIVE' || account.status === 'PASSED').length} hint="Synced portfolio" tone="amber" />
+      </div>
+      {!accounts.length ? (
+        <div className="empty-state light-empty">
+          <WalletCards size={30} />
+          <h3>No accounts yet</h3>
+          <p>Add a portfolio account, then assign trades to it so P&L updates equity.</p>
+          <button className="btn primary" onClick={() => openModal({ configKey: 'accounts' })}>
+            Add Account
+          </button>
+        </div>
+      ) : (
+        <div className="portfolio-grid">
+          {accounts.map((account) => {
+            const pnl = Number(pnlByAccount[account.uid] || 0)
+            const base = accountBaseBalance(account)
+            const equity = base + pnl
+            const accountTrades = trades.filter((trade) => tradeAccountUid(trade, accounts) === account.uid)
+            const wins = accountTrades.filter((trade) => trade.result === 'WIN').length
+            const losses = accountTrades.filter((trade) => trade.result === 'LOSS').length
+            const target = Number(account.target_percent || 0)
+            const targetValue = target > 0 ? base * (1 + target / 100) : 0
+            const progress = targetValue > base ? Math.max(0, Math.min(100, ((equity - base) / (targetValue - base)) * 100)) : 0
+
+            return (
+              <article className="portfolio-card" key={account.uid}>
+                <div className="portfolio-card-head">
+                  <div>
+                    <span>{account.is_prop_firm ? 'PROP FIRM' : 'ACCOUNT'}</span>
+                    <h3>{account.name || 'Trading account'}</h3>
+                    <p>{account.broker || account.status || 'Portfolio account'}</p>
+                  </div>
+                  <strong className={pnl < 0 ? 'negative' : 'positive'}>{money(equity, account.currency || 'USD')}</strong>
+                </div>
+                <div className="portfolio-metrics">
+                  <div><span>Base</span><b>{money(base, account.currency || 'USD')}</b></div>
+                  <div><span>Trade P&L</span><b className={pnl < 0 ? 'negative' : 'positive'}>{money(pnl, account.currency || 'USD')}</b></div>
+                  <div><span>Trades</span><b>{accountTrades.length}</b></div>
+                  <div><span>W / L</span><b>{wins} / {losses}</b></div>
+                </div>
+                {target > 0 && (
+                  <div className="portfolio-progress">
+                    <span>Target {target}%</span>
+                    <i><b style={{ width: `${progress}%` }} /></i>
+                  </div>
+                )}
+                <div className="record-actions">
+                  <button onClick={() => openModal({ configKey: 'accounts', record: account })}>Edit</button>
+                  <button onClick={() => deleteRecord('accounts', account.uid)} aria-label="Delete account">
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </article>
+            )
+          })}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function RecordList({ rows, configKey, compact, editRecord, deleteRecord }) {
   if (!rows?.length) return <p className="muted-copy">No records yet.</p>
   return (
@@ -1640,27 +1877,27 @@ function RecordCard({ row, configKey, compact, editRecord, deleteRecord }) {
   )
 }
 
-function RecordModal({ modal, close, uploadImage, saveRecord, accounts = [] }) {
+function RecordModal({ modal, close, uploadImage, saveRecord, accounts = [], records = {} }) {
   const { configKey, record } = modal
   const config = tableConfigs[configKey]
-  const [values, setValues] = useState(() => buildInitialValues(config, record))
+  const [values, setValues] = useState(() => {
+    const initial = buildInitialValues(config, record)
+    if (configKey === 'trades' && !initial.account_uid) initial.account_uid = defaultTradeAccountUid(accounts)
+    if (configKey === 'trades' && !initial.r_multiple) initial.r_multiple = calculateRiskReward(initial.sl_pips, initial.tp_pips)
+    return initial
+  })
   const [files, setFiles] = useState({})
   const [checkedItems, setCheckedItems] = useState([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const usesChecklist = configKey === 'trades' || configKey === 'backtests'
-  const detailFields =
-    configKey === 'trades'
-      ? config.fields.slice(0, 11)
-      : configKey === 'backtests'
-        ? config.fields.slice(0, 9)
-        : config.fields
-  const reviewFields =
-    configKey === 'trades'
-      ? config.fields.slice(11)
-      : configKey === 'backtests'
-        ? config.fields.slice(9)
-        : []
+  const reviewStart = configKey === 'trades'
+    ? config.fields.findIndex(([name]) => name === 'setup_tag')
+    : configKey === 'backtests'
+      ? config.fields.findIndex(([name]) => name === 'chart5_url')
+      : -1
+  const detailFields = reviewStart > -1 ? config.fields.slice(0, reviewStart) : config.fields
+  const reviewFields = reviewStart > -1 ? config.fields.slice(reviewStart) : []
   const modalClass = [
     'record-modal',
     configKey === 'trades' ? 'trade-modal' : '',
@@ -1677,7 +1914,13 @@ function RecordModal({ modal, close, uploadImage, saveRecord, accounts = [] }) {
           : 'Keep this record synced with your TradeLog cloud data.'
 
   function update(name, value) {
-    setValues((current) => ({ ...current, [name]: value }))
+    setValues((current) => {
+      const next = { ...current, [name]: name === 'instrument' && typeof value === 'string' ? value.toUpperCase() : value }
+      if (configKey === 'trades' && (name === 'sl_pips' || name === 'tp_pips')) {
+        next.r_multiple = calculateRiskReward(next.sl_pips, next.tp_pips)
+      }
+      return next
+    })
   }
 
   function toggleChecklist(index) {
@@ -1730,12 +1973,17 @@ function RecordModal({ modal, close, uploadImage, saveRecord, accounts = [] }) {
               type={type}
               options={options}
               accounts={accounts}
+              records={records}
+              configKey={configKey}
               value={values[name]}
               update={update}
               setFile={(file) => setFiles((current) => ({ ...current, [name]: file }))}
             />
           ))}
         </div>
+        {(configKey === 'trades' || configKey === 'backtests') && (
+          <RiskRewardPreview slPips={values.sl_pips} tpPips={values.tp_pips} />
+        )}
         {usesChecklist && (
           <TradeChecklist checkedItems={checkedItems} toggleChecklist={toggleChecklist} />
         )}
@@ -1749,6 +1997,8 @@ function RecordModal({ modal, close, uploadImage, saveRecord, accounts = [] }) {
                 type={type}
                 options={options}
                 accounts={accounts}
+                records={records}
+                configKey={configKey}
                 value={values[name]}
                 update={update}
                 setFile={(file) => setFiles((current) => ({ ...current, [name]: file }))}
@@ -1809,7 +2059,46 @@ function buildInitialValues(config, record) {
   return initial
 }
 
-function Field({ name, label, type, options, value, update, setFile, accounts = [] }) {
+function uniqueOptions(items) {
+  return [...new Set(items.map((item) => String(item || '').trim()).filter(Boolean))]
+}
+
+function resolveOptions(name, options, records) {
+  if (name === 'instrument') {
+    return uniqueOptions([
+      ...(records.instruments || []).map((item) => item.name),
+      ...(records.trades || []).map((item) => item.instrument),
+      ...(records.backtests || []).map((item) => item.instrument),
+      ...defaultInstrumentSuggestions,
+    ]).map((item) => item.toUpperCase())
+  }
+  if (name === 'setup_tag') {
+    return uniqueOptions([
+      ...(records.trades || []).map((item) => item.setup_tag),
+      ...setupTagSuggestions,
+    ])
+  }
+  if (name === 'bias') {
+    return uniqueOptions([
+      ...(records.backtests || []).map((item) => item.bias),
+      ...scenarioOptions,
+    ])
+  }
+  return options || []
+}
+
+function RiskRewardPreview({ slPips, tpPips }) {
+  const ratio = calculateRiskReward(slPips, tpPips)
+  return (
+    <div className="rr-preview">
+      <span>Auto RR</span>
+      <strong>{ratio ? `1:${ratio}` : 'Enter SL and TP'}</strong>
+      <small>Calculated as TP pips divided by SL pips.</small>
+    </div>
+  )
+}
+
+function Field({ name, label, type, options, value, update, setFile, accounts = [], records = {}, configKey = '' }) {
   if (type === 'account') {
     const live = accounts.filter((a) => !a.deleted)
     return (
@@ -1834,6 +2123,24 @@ function Field({ name, label, type, options, value, update, setFile, accounts = 
         value={value}
         update={update}
       />
+    )
+  }
+  if (type === 'suggest') {
+    const listId = `${configKey}-${name}-suggestions`
+    const choices = resolveOptions(name, options, records)
+    return (
+      <label className="field">
+        <span>{label}</span>
+        <input
+          value={value || ''}
+          onChange={(e) => update(name, e.target.value)}
+          placeholder={choices[0] || ''}
+          list={listId}
+        />
+        <datalist id={listId}>
+          {choices.map((option) => <option key={option} value={option} />)}
+        </datalist>
+      </label>
     )
   }
   if (type === 'textarea') {
@@ -2019,14 +2326,14 @@ function ToolsPanel() {
 function EconomicCalendarPanel() {
   const [impact, setImpact] = useState('High')
   const [currencies, setCurrencies] = useState(calendarCurrencyPresets[0])
-  const [embedVisible, setEmbedVisible] = useState(false)
+  const [frameVersion, setFrameVersion] = useState(0)
   const impactMap = {
     All: '1,2,3',
     High: '3',
     Medium: '2,3',
     Low: '1,2,3',
   }
-  const widgetSrc = `https://widgets.myfxbook.com/widgets/economic-calendar.html?lang=en&impacts=${impactMap[impact]}&symbols=${encodeURIComponent(currencies)}`
+  const widgetSrc = `https://widgets.myfxbook.com/widgets/economic-calendar.html?lang=en&impacts=${impactMap[impact]}&symbols=${encodeURIComponent(currencies)}&refresh=${frameVersion}`
 
   return (
     <section className="economic-calendar-page">
@@ -2036,9 +2343,9 @@ function EconomicCalendarPanel() {
           <h2>Economic calendar</h2>
           <p>Use high-impact news beside your journal before logging trades or backtests.</p>
         </div>
-        <a className="btn primary" href={myfxbookCalendarUrl} target="_blank" rel="noreferrer">
-          <ExternalLink size={16} /> Open Myfxbook
-        </a>
+        <button className="btn primary" type="button" onClick={() => setFrameVersion((current) => current + 1)}>
+          <RefreshCw size={16} /> Refresh calendar
+        </button>
       </div>
       <div className="calendar-toolbar">
         <div>
@@ -2054,9 +2361,7 @@ function EconomicCalendarPanel() {
             </button>
           ))}
         </div>
-        <button type="button" onClick={() => setEmbedVisible((current) => !current)}>
-          {embedVisible ? 'Hide embed' : 'Try embedded widget'}
-        </button>
+        <button type="button" onClick={() => setImpact('All')}>Show all impact</button>
         <label>
           <span>Currencies</span>
           <select value={currencies} onChange={(event) => setCurrencies(event.target.value)}>
@@ -2065,28 +2370,12 @@ function EconomicCalendarPanel() {
         </label>
       </div>
       <div className="myfxbook-frame">
-        {embedVisible ? (
-          <>
-            <div className="frame-notice">
-              <CalendarDays size={18} />
-              <span>If Myfxbook blocks this frame, use the official calendar link.</span>
-              <a href={myfxbookCalendarUrl} target="_blank" rel="noreferrer">Open Myfxbook</a>
-            </div>
-            <iframe title="Myfxbook economic calendar" src={widgetSrc} loading="lazy" />
-          </>
-        ) : (
-          <div className="calendar-fallback-card">
-            <CalendarDays size={34} />
-            <div>
-              <span>Official Myfxbook source</span>
-              <h3>Open the live economic calendar</h3>
-              <p>Myfxbook provides the economic calendar widget and real-time market event tools. Some local browsers block the embedded widget, so the official calendar opens in a new tab.</p>
-            </div>
-            <a className="btn primary" href={myfxbookCalendarUrl} target="_blank" rel="noreferrer">
-              <ExternalLink size={16} /> Open Live Calendar
-            </a>
-          </div>
-        )}
+        <div className="frame-notice">
+          <CalendarDays size={18} />
+          <span>Live Myfxbook economic calendar embedded inside TradeLog.</span>
+          <a href={myfxbookCalendarUrl} target="_blank" rel="noreferrer">Source</a>
+        </div>
+        <iframe key={widgetSrc} title="Myfxbook economic calendar" src={widgetSrc} loading="lazy" />
       </div>
     </section>
   )

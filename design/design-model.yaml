@@ -1,0 +1,87 @@
+# TradeLog — design system (generated via /hue, applied to the live site).
+# Identity kept exactly; structure tightened. Energetic teal→violet gradient held
+# inside a calm, restrained, glassy light UI.
+name: "TradeLog"
+philosophy: >
+  A disciplined trading command center. Color is a signal, not decoration —
+  the teal→violet identity gradient and the green-win / red-loss semantics carry
+  meaning; everything else stays a quiet, frosted, near-white canvas. Density with air.
+primary_mode: "light"
+brand_domain: "forex / prop-firm trading journal & analytics"
+brand_type: "ui-rich"
+mono_for_code: false
+mono_for_metrics: true   # P&L, win rate, R, counts use tabular mono numerals
+
+principles:
+  - "Identity gradient is earned. Teal→violet (#7dded4→#6d7dff) appears on primary CTAs, the active nav rail accent, and one hero number — never on plain surfaces."
+  - "Green means up, red means down, always. #10b981 / #ef476f are reserved for P&L and outcomes; never decorative."
+  - "One surface, one shadow, one radius family. Every panel is the same frosted card; depth comes from a single soft shadow, not per-card gradients."
+  - "Numbers are the heroes. Metrics use tabular mono, large and tight; labels are small uppercase whispers."
+  - "Tint is a seasoning. KPI cards may carry a 6–10% wash of their semantic hue, never a saturated gradient."
+
+primitives:
+  colors:
+    # Cool, slightly blue-gray neutrals to sit under the teal/violet identity.
+    neutral:
+      50:  "#f6f8fc"
+      100: "#eef2f9"
+      200: "#e2e8f2"
+      300: "#cdd6e4"
+      400: "#9aa6b8"
+      500: "#6b7689"
+      600: "#4e596d"
+      700: "#39435400"   # placeholder, overridden below
+      700b: "#394354"
+      800: "#262f3e"
+      900: "#182033"
+      950: "#0d1424"
+    teal:   { 300: "#a9ece2", 400: "#7dded4", 500: "#3cc6b8", 600: "#22a596" }
+    violet: { 300: "#aeb8ff", 400: "#8a96ff", 500: "#6d7dff", 600: "#5563f0" }
+    green:  { 50: "#e7faf1", 500: "#10b981", 600: "#0f9f73" }
+    red:    { 50: "#fdeef2", 500: "#ef476f", 600: "#d92e58" }
+    amber:  { 50: "#fff6e6", 500: "#f4a93b" }
+  spacing: [0, 4, 8, 12, 16, 20, 24, 32, 40, 56, 72]
+  radii: [10, 14, 18, 22, 999]
+
+tokens:
+  colors:
+    light:
+      background: "#eef3fb"
+      surface1: "rgba(255,255,255,0.78)"   # cards/panels (frosted)
+      surface2: "rgba(255,255,255,0.55)"   # nested wells, inputs
+      surface3: "rgba(255,255,255,0.92)"   # raised (active nav, modals)
+      border: "rgba(70,89,124,0.12)"
+      border_visible: "rgba(70,89,124,0.20)"
+      text1: "#172033"
+      text2: "#5a6577"
+      text3: "#8b95a6"
+      accent: "#6d7dff"
+      accent_grad: "linear-gradient(135deg,#7dded4,#6d7dff)"
+      accent_subtle: "rgba(96,216,184,0.16)"
+    success: "#10b981"
+    warning: "#f4a93b"
+    error: "#ef476f"
+  shadow:
+    card: "0 10px 30px rgba(63,80,120,0.10)"
+    raised: "0 18px 48px rgba(63,80,120,0.16)"
+    pop: "0 26px 70px rgba(40,55,95,0.22)"
+  radii: { input: 12, control: 14, card: 18, panel: 22, pill: 999 }
+  spacing: { xs: 8, sm: 12, md: 16, lg: 24, xl: 32, 2xl: 40 }
+  typography:
+    display: { family: "Inter", size: "clamp(30px,3.4vw,40px)", weight: 800, line_height: 1.04, tracking: "-0.02em" }
+    h2: { family: "Inter", size: "20px", weight: 750, tracking: "-0.01em" }
+    metric: { family: "Inter", size: "clamp(26px,2.6vw,34px)", weight: 800, tracking: "-0.02em", feature: "tabular-nums" }
+    body: { family: "Inter", size: "14px", weight: 500, line_height: 1.5 }
+    kicker: { family: "Inter", size: "11px", weight: 800, tracking: "0.14em", transform: "uppercase" }
+  elevation: { strategy: "subtle-glass", blur: "20px" }
+  motion: { personality: "smooth", easing: "cubic-bezier(.2,.7,.2,1)", duration_normal: "220ms" }
+
+components:
+  kpi_card:
+    source: "reworked"
+    note: "Neutral frosted surface + a small tinted icon chip + tabular metric. Hero P&L card spans wider and carries the identity gradient on its value."
+  panel:
+    source: "reworked"
+    note: "One frosted card: surface1, border, shadow.card, radius panel, 22px pad."
+  button_primary: { background: "{accent_grad}", color: "#fff", radius: 14, weight: 750, shadow: "0 12px 26px rgba(96,116,225,0.30)" }
+  nav_active: { background: "{accent_subtle}", text: "#0f7a63", rail: "{accent_grad}" }
