@@ -1818,14 +1818,16 @@ function PortfolioView({ accounts, trades, openModal, deleteRecord }) {
 
 function RecordList({ rows, configKey, compact, editRecord, deleteRecord }) {
   if (!rows?.length) return <p className="muted-copy">No records yet.</p>
+  const numbered = configKey === 'trades' || configKey === 'backtests'
   return (
     <div className={compact ? 'compact-list' : 'record-list'}>
-      {rows.map((row) => (
+      {rows.map((row, index) => (
         <RecordCard
           key={row.uid}
           row={row}
           configKey={configKey}
           compact={compact}
+          seq={numbered ? rows.length - index : null}
           editRecord={editRecord}
           deleteRecord={deleteRecord}
         />
@@ -1834,7 +1836,7 @@ function RecordList({ rows, configKey, compact, editRecord, deleteRecord }) {
   )
 }
 
-function RecordCard({ row, configKey, compact, editRecord, deleteRecord }) {
+function RecordCard({ row, configKey, compact, seq, editRecord, deleteRecord }) {
   const title =
     row.instrument ||
     row.title ||
@@ -1862,6 +1864,7 @@ function RecordCard({ row, configKey, compact, editRecord, deleteRecord }) {
         <h3>{title}</h3>
         <p>{subtitle}</p>
       </div>
+      {seq != null && <span className="seq-badge">#{seq}</span>}
       {amount != null && amount !== '' && (
         <strong className={Number(amount) < 0 ? 'negative' : 'positive'}>{money(amount, row.currency || 'USD')}</strong>
       )}
@@ -1913,6 +1916,18 @@ function RecordModal({ modal, close, uploadImage, saveRecord, accounts = [], rec
           ? 'Capture mindset, routine, reflection, discipline, and the plan for the next session.'
           : 'Keep this record synced with your TradeLog cloud data.'
 
+  const seqNo = (() => {
+    if (!usesChecklist) return null
+    const list = (records[configKey] || []).filter((r) => !r.deleted)
+    if (!record) return list.length + 1
+    const sorted = [...list].sort(
+      (a, b) => (a.created_at || a.opened_at || a.date_millis || 0) - (b.created_at || b.opened_at || b.date_millis || 0),
+    )
+    const idx = sorted.findIndex((r) => r.uid === record.uid)
+    return idx >= 0 ? idx + 1 : list.length
+  })()
+  const seqLabel = configKey === 'backtests' ? 'Backtest No.' : 'Trade No.'
+
   function update(name, value) {
     setValues((current) => {
       const next = { ...current, [name]: name === 'instrument' && typeof value === 'string' ? value.toUpperCase() : value }
@@ -1960,9 +1975,17 @@ function RecordModal({ modal, close, uploadImage, saveRecord, accounts = [], rec
             <h2>{config.title}</h2>
             <p>{modalCopy}</p>
           </div>
-          <button type="button" className="close" onClick={close} aria-label="Close">
-            <X size={18} />
-          </button>
+          <div className="head-right">
+            {seqNo != null && (
+              <span className="record-no">
+                <small>{seqLabel}</small>
+                <b>#{seqNo}</b>
+              </span>
+            )}
+            <button type="button" className="close" onClick={close} aria-label="Close">
+              <X size={18} />
+            </button>
+          </div>
         </div>
         <div className="form-grid">
           {detailFields.map(([name, label, type, options]) => (

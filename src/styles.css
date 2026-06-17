@@ -3828,3 +3828,54 @@ a {
     border-radius: 20px;
   }
 }
+
+/* ---- Sequential trade/backtest number (RyzeLog-style #N) ---- */
+.seq-badge {
+  align-self: center;
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(96, 216, 184, 0.16);
+  color: #0f7a63;
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.modal-head .head-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.record-no {
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  padding: 6px 14px;
+  border-radius: 12px;
+  background: rgba(96, 216, 184, 0.16);
+  border: 1px solid rgba(96, 216, 184, 0.28);
+}
+.record-no small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.record-no b {
+  color: #0f7a63;
+  font-size: 18px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Modal entrance animation ---- */
+@keyframes tl-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes tl-modal-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.dialog-backdrop { animation: tl-backdrop-in 150ms ease both; }
+.record-modal,
+.auth-dialog { animation: tl-modal-in 240ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
