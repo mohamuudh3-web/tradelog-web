@@ -2551,42 +2551,118 @@ function CouponsPanel() {
   )
 }
 
+// Win rate per group (pair/session/scenario) for backtests, sorted by sample size.
+function winRateBy(items, field, limit = 6) {
+  const groups = {}
+  for (const item of items) {
+    const key = String(item[field] || '—').toUpperCase()
+    if (!groups[key]) groups[key] = { n: 0, w: 0 }
+    groups[key].n += 1
+    if (item.result === 'WIN') groups[key].w += 1
+  }
+  return Object.entries(groups)
+    .map(([label, g]) => {
+      const pct = Math.round((g.w / g.n) * 100)
+      return { label, value: pct, format: `${pct}% · ${g.w}/${g.n}`, n: g.n }
+    })
+    .sort((a, b) => b.n - a.n)
+    .slice(0, limit)
+}
+
+function countBy(items, field, limit = 6) {
+  const m = {}
+  for (const item of items) {
+    const key = String(item[field] || '—').toUpperCase()
+    m[key] = (m[key] || 0) + 1
+  }
+  return Object.entries(m)
+    .map(([label, value]) => ({ label, value, format: String(value) }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, limit)
+}
+
+function gradeDistribution(items) {
+  const order = ['A+', 'A', 'B', 'C', 'D', 'F']
+  const counts = {}
+  for (const item of items) {
+    const g = tradeGrade(item)
+    if (g) counts[g] = (counts[g] || 0) + 1
+  }
+  return order.filter((g) => counts[g]).map((g) => ({ label: g, value: counts[g], format: String(counts[g]) }))
+}
+
+function backtestStats(backtests) {
+  const wins = backtests.filter((b) => b.result === 'WIN').length
+  const losses = backtests.filter((b) => b.result === 'LOSS').length
+  const be = backtests.filter((b) => b.result === 'BREAKEVEN').length
+  const decisive = wins + losses
+  const rrs = backtests
+    .map((b) => calculateRiskReward(b.sl_pips, b.tp_pips))
+    .filter((v) => v !== '' && Number.isFinite(Number(v)))
+    .map(Number)
+  const graded = backtests.map(tradeGrade).filter(Boolean)
+  return {
+    n: backtests.length,
+    wins,
+    losses,
+    be,
+    winRate: decisive ? Math.round((wins / decisive) * 100) : 0,
+    avgRR: rrs.length ? rrs.reduce((a, c) => a + c, 0) / rrs.length : 0,
+    aPlus: graded.filter((g) => g === 'A+').length,
+    gradedCount: graded.length,
+  }
+}
+
 function StatisticsCenter({ records, setView }) {
   const trades = records.trades || []
   const backtests = records.backtests || []
   const tradeSummary = tradeTotals(trades, records.accounts || [], records.payouts || [])
-  const backtestWins = backtests.filter((item) => item.result === 'WIN').length
-  const backtestLosses = backtests.filter((item) => item.result === 'LOSS').length
-  const backtestRate = backtests.length ? Math.round((backtestWins / backtests.length) * 100) : 0
+  const bt = backtestStats(backtests)
 
   return (
     <section className="statistics-page">
       <div className="records-head">
         <div>
           <span>BACKTESTING AREA</span>
-          <h2>Statistics Center</h2>
-          <p>Compare live execution with backtested model evidence.</p>
+          <h2>Backtest Analytics</h2>
+          <p>Model performance by pair, session, scenario, and setup grade.</p>
         </div>
         <div className="records-actions">
-          <button className="btn ghost" type="button" onClick={() => setView('analytics')}>Open Analytics</button>
+          <button className="btn ghost" type="button" onClick={() => setView('analytics')}>Trade Analytics</button>
           <button className="btn primary" type="button" onClick={() => setView('backtests')}>Backtested Trades</button>
         </div>
       </div>
-      <div className="stats-grid">
-        <StatCard icon={LineChart} label="Live Trades" value={trades.length} hint={`${tradeSummary.wins}W / ${tradeSummary.losses}L`} tone="aqua" />
-        <StatCard icon={Target} label="Live Win Rate" value={`${tradeSummary.winRate}%`} hint="Trading journal" tone="violet" />
-        <StatCard icon={TrendingUp} label="Backtests" value={backtests.length} hint={`${backtestWins}W / ${backtestLosses}L`} tone="amber" />
-        <StatCard icon={BarChart3} label="Model Win Rate" value={`${backtestRate}%`} hint="Backtesting area" tone="mint" />
-      </div>
-      <div className="analytics-board">
-        <BarPreview title="Backtest Results" copy="Model outcome distribution" items={[
-          { label: 'Wins', value: backtestWins, format: String(backtestWins) },
-          { label: 'Losses', value: backtestLosses, format: String(backtestLosses) },
-          { label: 'Break-even', value: backtests.filter((item) => item.result === 'BREAKEVEN').length, format: String(backtests.filter((item) => item.result === 'BREAKEVEN').length) },
-        ]} />
-        <BarPreview title="Live Sessions" copy="Current journal performance" items={groupPnl(trades, 'session', ['ASIA', 'LONDON', 'NEW YORK'])} />
-        <BarPreview title="Backtest Symbols" copy="Most tested instruments" items={groupPnl(backtests.map((item) => ({ ...item, pnl: item.result === 'WIN' ? 1 : item.result === 'LOSS' ? -1 : 0 })), 'instrument').slice(0, 5)} />
-      </div>
+      {backtests.length === 0 ? (
+        <div className="empty-state light-empty">
+          <BarChart3 size={30} />
+          <h3>No backtests yet</h3>
+          <p>Log backtests with before/after charts to unlock model analytics.</p>
+          <button className="btn primary" type="button" onClick={() => setView('backtests')}>Backtested Trades</button>
+        </div>
+      ) : (
+        <>
+          <div className="stats-grid">
+            <StatCard icon={TrendingUp} label="Backtests" value={bt.n} hint={`${bt.wins}W / ${bt.losses}L${bt.be ? ` / ${bt.be} BE` : ''}`} tone="amber" />
+            <StatCard icon={Target} label="Model Win Rate" value={`${bt.winRate}%`} hint="Wins ÷ decisive" tone="violet" />
+            <StatCard icon={BarChart3} label="Avg R:R" value={bt.avgRR ? `1:${bt.avgRR.toFixed(2)}` : '—'} hint="From SL/TP pips" tone="mint" />
+            <StatCard icon={ShieldCheck} label="A+ Setups" value={bt.aPlus} hint={bt.gradedCount ? `${Math.round((bt.aPlus / bt.gradedCount) * 100)}% of graded` : 'Grade the checklist'} tone="aqua" />
+          </div>
+          <div className="analytics-board">
+            <RatioCard wins={bt.wins} losses={bt.losses} breakEven={bt.be} />
+            <BarPreview title="Win Rate by Pair" copy="Where your model performs" items={winRateBy(backtests, 'instrument')} />
+            <BarPreview title="Win Rate by Session" copy="Edge by trading session" items={winRateBy(backtests, 'session')} />
+          </div>
+          <div className="analytics-board">
+            <BarPreview title="Win Rate by Scenario" copy="Your bias / S1–S4 setups" items={winRateBy(backtests, 'bias')} />
+            <BarPreview title="Setup Grade Distribution" copy="Checklist quality of backtests" items={gradeDistribution(backtests)} />
+            <BarPreview title="Most Tested Pairs" copy="Where you put in reps" items={countBy(backtests, 'instrument')} />
+          </div>
+          <div className="stats-grid">
+            <StatCard icon={LineChart} label="Live Trades" value={trades.length} hint={`${tradeSummary.wins}W / ${tradeSummary.losses}L`} tone="aqua" />
+            <StatCard icon={Target} label="Live Win Rate" value={`${tradeSummary.winRate}%`} hint="Compare model vs execution" tone="violet" />
+          </div>
+        </>
+      )}
     </section>
   )
 }
