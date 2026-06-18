@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Activity,
   BarChart3,
@@ -331,12 +331,6 @@ const psychologyOptions = [
 const dashboardRanges = ['30 days', '60 days', '90 days', 'All', 'Today']
 
 const calendarCurrencyPresets = ['USD,EUR,GBP,JPY', 'USD', 'EUR,GBP', 'AUD,NZD,CAD']
-
-// Map our currency presets to TradingView country codes for the events widget.
-const currencyCountryMap = {
-  USD: 'us', EUR: 'eu', GBP: 'gb', JPY: 'jp',
-  AUD: 'au', NZD: 'nz', CAD: 'ca', CHF: 'ch',
-}
 
 const myfxbookCalendarUrl = 'https://www.myfxbook.com/forex-economic-calendar'
 
@@ -2462,38 +2456,10 @@ function EconomicCalendarPanel() {
   const [impact, setImpact] = useState('High')
   const [currencies, setCurrencies] = useState(calendarCurrencyPresets[0])
   const [frameVersion, setFrameVersion] = useState(0)
-  const containerRef = useRef(null)
-
-  // TradingView importance: 1 = high, 0 = medium, -1 = low.
-  const importanceFilter = impact === 'High' ? '1' : impact === 'Medium' ? '0,1' : '-1,0,1'
-  const countryFilter = currencies
-    .split(',')
-    .map((code) => currencyCountryMap[code.trim().toUpperCase()])
-    .filter(Boolean)
-    .join(',')
-
-  // The Myfxbook widget sends X-Frame-Options: SAMEORIGIN (can't be embedded cross-origin).
-  // TradingView's events widget is built for embedding, so we inject its script instead.
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return undefined
-    container.innerHTML = '<div class="tradingview-widget-container__widget"></div>'
-    const script = document.createElement('script')
-    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-events.js'
-    script.type = 'text/javascript'
-    script.async = true
-    script.innerHTML = JSON.stringify({
-      colorTheme: 'light',
-      isTransparent: true,
-      locale: 'en',
-      countryFilter,
-      importanceFilter,
-      width: '100%',
-      height: 620,
-    })
-    container.appendChild(script)
-    return () => { container.innerHTML = '' }
-  }, [importanceFilter, countryFilter, frameVersion])
+  // Myfxbook impact codes: 1 = low, 2 = medium, 3 = high (same as the Android app).
+  const impactMap = { High: '3', Medium: '2,3', All: '1,2,3' }
+  // Official Myfxbook embeddable widget ("Add to your site"): widget.myfxbook.com/widget/calendar.html.
+  const widgetSrc = `https://widget.myfxbook.com/widget/calendar.html?lang=en&impacts=${impactMap[impact]}&symbols=${encodeURIComponent(currencies)}&version=${frameVersion}`
 
   return (
     <section className="economic-calendar-page">
@@ -2532,10 +2498,10 @@ function EconomicCalendarPanel() {
       <div className="myfxbook-frame">
         <div className="frame-notice">
           <CalendarDays size={18} />
-          <span>Live economic calendar embedded inside TradeLog.</span>
+          <span>Live Myfxbook economic calendar embedded inside TradeLog.</span>
           <a href={myfxbookCalendarUrl} target="_blank" rel="noreferrer">Source</a>
         </div>
-        <div className="tradingview-widget-container" ref={containerRef} />
+        <iframe key={widgetSrc} title="Myfxbook economic calendar" src={widgetSrc} loading="lazy" />
       </div>
     </section>
   )
