@@ -2158,12 +2158,13 @@ function uniqueOptions(items) {
 
 function resolveOptions(name, options, records) {
   if (name === 'instrument') {
-    return uniqueOptions([
+    // Single synced source = the user's instruments list (+ symbols already used).
+    const synced = uniqueOptions([
       ...(records.instruments || []).map((item) => item.name),
       ...(records.trades || []).map((item) => item.instrument),
       ...(records.backtests || []).map((item) => item.instrument),
-      ...defaultInstrumentSuggestions,
-    ]).map((item) => item.toUpperCase())
+    ].filter(Boolean)).map((item) => item.toUpperCase())
+    return synced.length ? synced : defaultInstrumentSuggestions.map((item) => item.toUpperCase())
   }
   if (name === 'setup_tag') {
     return uniqueOptions([
