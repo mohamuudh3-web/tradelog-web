@@ -3931,6 +3931,21 @@ a {
 .gallery-badge.win { background: #10b981; }
 .gallery-badge.loss { background: #ef476f; }
 .gallery-badge.be { background: #8b95a6; }
+.gallery-grade {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  min-width: 26px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-align: center;
+  color: #0b1220;
+  background: linear-gradient(135deg, #7cf0d2, #6aa8ff);
+  box-shadow: 0 6px 16px rgba(20, 30, 60, 0.22);
+}
 .gallery-del {
   position: absolute;
   top: 8px;

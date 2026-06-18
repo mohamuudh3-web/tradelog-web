@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   BarChart3,
@@ -290,6 +290,31 @@ const tradeChecklist = [
   'Hubi in Momentum-ku la jaanqaadayo direction-ka.',
 ]
 
+// Grade a trade/backtest from how many checklist rules were confirmed.
+// Mirrors the Android app's Grade.of(checked, total) thresholds exactly.
+function gradeFromRatio(checked, total) {
+  if (total <= 0 || checked <= 0) return ''
+  const ratio = checked / total
+  if (ratio >= 1) return 'A+'
+  if (ratio >= 0.8) return 'A'
+  if (ratio >= 0.6) return 'B'
+  if (ratio >= 0.4) return 'C'
+  if (ratio >= 0.2) return 'D'
+  return 'F'
+}
+
+function checkedRuleCount(row) {
+  return String(row?.checked_rules || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean).length
+}
+
+// '' when the checklist was never filled in (ungraded), else the letter grade.
+function tradeGrade(row) {
+  return gradeFromRatio(checkedRuleCount(row), tradeChecklist.length)
+}
+
 const psychologyOptions = [
   'Calm',
   'Patient',
@@ -306,6 +331,12 @@ const psychologyOptions = [
 const dashboardRanges = ['30 days', '60 days', '90 days', 'All', 'Today']
 
 const calendarCurrencyPresets = ['USD,EUR,GBP,JPY', 'USD', 'EUR,GBP', 'AUD,NZD,CAD']
+
+// Map our currency presets to TradingView country codes for the events widget.
+const currencyCountryMap = {
+  USD: 'us', EUR: 'eu', GBP: 'gb', JPY: 'jp',
+  AUD: 'au', NZD: 'nz', CAD: 'ca', CHF: 'ch',
+}
 
 const myfxbookCalendarUrl = 'https://www.myfxbook.com/forex-economic-calendar'
 
@@ -1175,14 +1206,14 @@ function TradingJournalView({ records, openModal, deleteRecord }) {
   const filtered = records.filter((row) => {
     const matchesQuery = !lowered || [row.instrument, row.notes, row.setup_tag].join(' ').toLowerCase().includes(lowered)
     const matchesStatus = status === 'All Status' || row.result === status
-    const matchesGrade = grade === 'All Grades' || String(row.setup_tag || '').toUpperCase().includes(grade.toUpperCase())
+    const matchesGrade = grade === 'All Grades' || tradeGrade(row) === grade
     const matchesPair = pair === 'All Pairs' || row.instrument === pair
     const matchesPeriod = tradeInPeriod(row, period)
     return matchesQuery && matchesStatus && matchesGrade && matchesPair && matchesPeriod
   })
   const won = records.filter((row) => row.result === 'WIN').length
   const loss = records.filter((row) => row.result === 'LOSS').length
-  const aPlus = records.filter((row) => String(row.setup_tag || '').toLowerCase().includes('a+')).length
+  const aPlus = records.filter((row) => tradeGrade(row) === 'A+').length
 
   return (
     <section className="journal-shell">
@@ -1863,12 +1894,14 @@ function GalleryCard({ row, configKey, seq, editRecord, deleteRecord }) {
   const dateStr = ts ? new Date(Number(ts)).toISOString().slice(0, 10) : ''
   const desc = row.notes || row.setup_tag || row.bias || ''
   const resultClass = result === 'WIN' ? 'win' : result === 'LOSS' ? 'loss' : 'be'
+  const grade = tradeGrade(row)
 
   return (
     <article className="gallery-card" onClick={() => editRecord?.(row)}>
       <div className="gallery-cover">
         {cover ? <img src={cover} alt="" /> : <div className="gallery-cover-empty"><ImagePlus size={20} /></div>}
         {result && <span className={`gallery-badge ${resultClass}`}>{result === 'BREAKEVEN' ? 'B/E' : result}</span>}
+        {grade && <span className="gallery-grade">{grade}</span>}
         <button
           className="gallery-del"
           onClick={(e) => { e.stopPropagation(); deleteRecord?.(configKey, row.uid) }}
@@ -1949,7 +1982,12 @@ function RecordModal({ modal, close, uploadImage, saveRecord, accounts = [], rec
     return initial
   })
   const [files, setFiles] = useState({})
-  const [checkedItems, setCheckedItems] = useState([])
+  const [checkedItems, setCheckedItems] = useState(() =>
+    String(record?.checked_rules || '')
+      .split(',')
+      .map((item) => parseInt(item.trim(), 10))
+      .filter((item) => Number.isInteger(item) && item >= 0 && item < tradeChecklist.length),
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const usesChecklist = configKey === 'trades' || configKey === 'backtests'
@@ -2028,6 +2066,8 @@ function RecordModal({ modal, close, uploadImage, saveRecord, accounts = [], rec
         payload[name] = parseValue(type, nextValues[name])
       }
       if (configKey === 'trades') payload.opened_at = record?.opened_at || msNow()
+      // Persist the confirmed checklist so the grade is derived + synced (matches the app's checked_rules).
+      if (usesChecklist) payload.checked_rules = [...checkedItems].sort((a, b) => a - b).join(',')
       await saveRecord(configKey, payload, record?.uid)
     } catch (err) {
       setError(err.message)
@@ -2112,11 +2152,12 @@ function RecordModal({ modal, close, uploadImage, saveRecord, accounts = [], rec
 }
 
 function TradeChecklist({ checkedItems, toggleChecklist }) {
+  const grade = gradeFromRatio(checkedItems.length, tradeChecklist.length)
   return (
     <section className="trade-checklist">
       <div>
         <h3>Soomaali Checklist</h3>
-        <strong>{checkedItems.length}/5</strong>
+        <strong>{checkedItems.length}/{tradeChecklist.length}{grade ? ` · ${grade}` : ''}</strong>
       </div>
       <label>
         <span>Select checklist</span>
@@ -2421,13 +2462,38 @@ function EconomicCalendarPanel() {
   const [impact, setImpact] = useState('High')
   const [currencies, setCurrencies] = useState(calendarCurrencyPresets[0])
   const [frameVersion, setFrameVersion] = useState(0)
-  const impactMap = {
-    All: '1,2,3',
-    High: '3',
-    Medium: '2,3',
-    Low: '1,2,3',
-  }
-  const widgetSrc = `https://widgets.myfxbook.com/widgets/economic-calendar.html?lang=en&impacts=${impactMap[impact]}&symbols=${encodeURIComponent(currencies)}&refresh=${frameVersion}`
+  const containerRef = useRef(null)
+
+  // TradingView importance: 1 = high, 0 = medium, -1 = low.
+  const importanceFilter = impact === 'High' ? '1' : impact === 'Medium' ? '0,1' : '-1,0,1'
+  const countryFilter = currencies
+    .split(',')
+    .map((code) => currencyCountryMap[code.trim().toUpperCase()])
+    .filter(Boolean)
+    .join(',')
+
+  // The Myfxbook widget sends X-Frame-Options: SAMEORIGIN (can't be embedded cross-origin).
+  // TradingView's events widget is built for embedding, so we inject its script instead.
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return undefined
+    container.innerHTML = '<div class="tradingview-widget-container__widget"></div>'
+    const script = document.createElement('script')
+    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-events.js'
+    script.type = 'text/javascript'
+    script.async = true
+    script.innerHTML = JSON.stringify({
+      colorTheme: 'light',
+      isTransparent: true,
+      locale: 'en',
+      countryFilter,
+      importanceFilter,
+      width: '100%',
+      height: 620,
+    })
+    container.appendChild(script)
+    return () => { container.innerHTML = '' }
+  }, [importanceFilter, countryFilter, frameVersion])
 
   return (
     <section className="economic-calendar-page">
@@ -2466,10 +2532,10 @@ function EconomicCalendarPanel() {
       <div className="myfxbook-frame">
         <div className="frame-notice">
           <CalendarDays size={18} />
-          <span>Live Myfxbook economic calendar embedded inside TradeLog.</span>
+          <span>Live economic calendar embedded inside TradeLog.</span>
           <a href={myfxbookCalendarUrl} target="_blank" rel="noreferrer">Source</a>
         </div>
-        <iframe key={widgetSrc} title="Myfxbook economic calendar" src={widgetSrc} loading="lazy" />
+        <div className="tradingview-widget-container" ref={containerRef} />
       </div>
     </section>
   )
